@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DM40A 蓝牙万用表 - 实时数据监控</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 580px;
+        }
+
+        .device-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 22px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 5px 14px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .status-disconnected { background: rgba(255, 107, 107, 0.2); color: #ff6b6b; }
+        .status-connecting { background: rgba(255, 193, 7, 0.2); color: #ffc107; }
+        .status-connected { background: rgba(78, 205, 196, 0.2); color: #4ecdc4; }
+
+        .display {
+            background: #0a0a0f;
+            border-radius: 16px;
+            padding: 35px 20px 25px;
+            margin: 20px 0;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .display::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(180deg, rgba(78, 205, 196, 0.03) 0%, transparent 100%);
+            pointer-events: none;
+        }
+
+        .mode-indicator {
+            position: absolute;
+            top: 12px;
+            right: 15px;
+            font-size: 11px;
+            color: #666;
+            text-transform: uppercase;
+        }
+
+        .value {
+            font-size: 56px;
+            font-weight: 700;
+            font-family: 'Courier New', monospace;
+            color: #4ecdc4;
+            text-shadow: 0 0 30px rgba(78, 205, 196, 0.5);
+            line-height: 1;
+            transition: all 0.3s ease;
+        }
+
+        .value.empty { color: #333; text-shadow: none; }
+
+        .unit {
+            font-size: 20px;
+            color: #888;
+            margin-top: 8px;
+            font-weight: 500;
+        }
+
+        .controls-section {
+            display: grid;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .control-group {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            padding: 12px;
+        }
+
+        .control-group-title {
+            font-size: 11px;
+            color: #888;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .btn-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+
+        .btn {
+            padding: 12px 8px;
+            border: none;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
+            color: #fff;
+            width: 100%;
+            padding: 14px;
+            font-size: 14px;
+        }
+
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(78, 205, 196, 0.4); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+            color: #fff;
+            width: 100%;
+            padding: 14px;
+            font-size: 14px;
+        }
+
+        .btn-danger:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(255, 107, 107, 0.4); }
+
+        .btn-mode {
+            background: rgba(255, 255, 255, 0.08);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .btn-mode:hover { background: rgba(255, 255, 255, 0.12); }
+        .btn-mode:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        .btn-mode.active {
+            background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
+            border-color: transparent;
+        }
+
+        .log {
+            margin-top: 15px;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            font-size: 11px;
+            color: #666;
+            max-height: 80px;
+            overflow-y: auto;
+        }
+
+        .log-entry { margin: 3px 0; }
+
+        @media (max-width: 480px) {
+            .btn-grid { grid-template-columns: repeat(3, 1fr); }
+            .value { font-size: 44px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="device-card">
+            <div class="header">
+                <h1>DM40A 蓝牙万用表</h1>
+                <span id="statusBadge" class="status-badge status-disconnected">未连接</span>
+            </div>
+
+            <div class="display">
+                <span class="mode-indicator" id="modeIndicator"></span>
+                <div class="value" id="valueDisplay">---</div>
+                <div class="unit" id="unitDisplay"></div>
+            </div>
+
+            <div class="controls-section">
+                <!-- 连接控制 -->
+                <button class="btn btn-primary" id="connectBtn" onclick="connect()">连接设备</button>
+                <button class="btn btn-danger" id="disconnectBtn" onclick="disconnect()" style="display: none;">断开连接</button>
+
+                <!-- 电压模式 -->
+                <div class="control-group">
+                    <div class="control-group-title">电压测量</div>
+                    <div class="btn-grid">
+                        <button class="btn btn-mode" id="dcVoltageBtn" onclick="setDcVoltageMode()" disabled>DCV</button>
+                        <button class="btn btn-mode" id="acVoltageBtn" onclick="setAcVoltageMode()" disabled>ACV</button>
+                    </div>
+                </div>
+
+                <!-- 电流模式 -->
+                <div class="control-group">
+                    <div class="control-group-title">电流测量</div>
+                    <div class="btn-grid">
+                        <button class="btn btn-mode" id="dcCurrentBtn" onclick="setDcCurrentMode()" disabled>DCA</button>
+                        <button class="btn btn-mode" id="acCurrentBtn" onclick="setAcCurrentMode()" disabled>ACA</button>
+                    </div>
+                </div>
+
+                <!-- 其他测量模式 -->
+                <div class="control-group">
+                    <div class="control-group-title">其他测量</div>
+                    <div class="btn-grid">
+                        <button class="btn btn-mode" id="resistanceBtn" onclick="setResistanceMode()" disabled>电阻</button>
+                        <button class="btn btn-mode" id="capacitanceBtn" onclick="setCapacitanceMode()" disabled>电容</button>
+                        <button class="btn btn-mode" id="frequencyBtn" onclick="setFrequencyMode()" disabled>频率</button>
+                        <button class="btn btn-mode" id="temperatureBtn" onclick="setTemperatureMode()" disabled>温度</button>
+                        <button class="btn btn-mode" id="diodeBtn" onclick="setDiodeMode()" disabled>二极管</button>
+                        <button class="btn btn-mode" id="continuityBtn" onclick="setContinuityMode()" disabled>通断</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="log" id="logDisplay"></div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let isConnected = false;
+        let currentMode = '';
+
+        // WebSocket 连接成功
+        socket.on('connected', (data) => {
+            addLog('WebSocket 已连接');
+        });
+
+        // 实时数据更新
+        socket.on('data_update', (data) => {
+            updateDisplay(data);
+        });
+
+        function updateDisplay(data) {
+            const valueDisplay = document.getElementById('valueDisplay');
+            const unitDisplay = document.getElementById('unitDisplay');
+            const modeIndicator = document.getElementById('modeIndicator');
+            const statusBadge = document.getElementById('statusBadge');
+
+            if (data.value !== null && data.value !== undefined) {
+                valueDisplay.textContent = data.value.toFixed(2);
+                valueDisplay.classList.remove('empty');
+                unitDisplay.textContent = data.unit;
+                modeIndicator.textContent = data.mode || '';
+                currentMode = data.mode || '';
+                statusBadge.textContent = '已连接';
+                statusBadge.className = 'status-badge status-connected';
+                isConnected = true;
+                updateActiveButton();
+            } else {
+                valueDisplay.textContent = '---';
+                valueDisplay.classList.add('empty');
+                unitDisplay.textContent = '';
+                modeIndicator.textContent = '';
+            }
+        }
+
+        function updateActiveButton() {
+            // 移除所有激活状态
+            document.querySelectorAll('.btn-mode').forEach(btn => btn.classList.remove('active'));
+
+            // 根据当前模式设置激活状态
+            if (currentMode.includes('DC Voltage')) document.getElementById('dcVoltageBtn').classList.add('active');
+            else if (currentMode.includes('AC Voltage')) document.getElementById('acVoltageBtn').classList.add('active');
+            else if (currentMode.includes('DC Current')) document.getElementById('dcCurrentBtn').classList.add('active');
+            else if (currentMode.includes('AC Current')) document.getElementById('acCurrentBtn').classList.add('active');
+            else if (currentMode.includes('Resistance')) document.getElementById('resistanceBtn').classList.add('active');
+            else if (currentMode.includes('Capacitance')) document.getElementById('capacitanceBtn').classList.add('active');
+            else if (currentMode.includes('Frequency')) document.getElementById('frequencyBtn').classList.add('active');
+            else if (currentMode.includes('Temperature')) document.getElementById('temperatureBtn').classList.add('active');
+            else if (currentMode.includes('Diode')) document.getElementById('diodeBtn').classList.add('active');
+            else if (currentMode.includes('Continuity')) document.getElementById('continuityBtn').classList.add('active');
+        }
+
+        async function connect() {
+            addLog('正在连接设备...');
+            updateStatus('connecting');
+            try {
+                const response = await fetch('/api/connect', { method: 'POST' });
+                const result = await response.json();
+                addLog(result.message);
+            } catch (error) {
+                addLog('连接失败: ' + error.message);
+                updateStatus('disconnected');
+            }
+        }
+
+        async function disconnect() {
+            try {
+                const response = await fetch('/api/disconnect', { method: 'POST' });
+                const result = await response.json();
+                addLog(result.message);
+                resetDisplay();
+            } catch (error) {
+                addLog('断开失败: ' + error.message);
+            }
+        }
+
+        async function setDcVoltageMode() {
+            await sendModeCommand('/api/mode/dc_voltage', '直流电压');
+        }
+
+        async function setAcVoltageMode() {
+            await sendModeCommand('/api/mode/ac_voltage', '交流电压');
+        }
+
+        async function setDcCurrentMode() {
+            await sendModeCommand('/api/mode/dc_current', '直流电流');
+        }
+
+        async function setAcCurrentMode() {
+            await sendModeCommand('/api/mode/ac_current', '交流电流');
+        }
+
+        async function setResistanceMode() {
+            await sendModeCommand('/api/mode/resistance', '电阻');
+        }
+
+        async function setCapacitanceMode() {
+            await sendModeCommand('/api/mode/capacitance', '电容');
+        }
+
+        async function setFrequencyMode() {
+            await sendModeCommand('/api/mode/frequency', '频率');
+        }
+
+        async function setTemperatureMode() {
+            await sendModeCommand('/api/mode/temperature', '温度');
+        }
+
+        async function setDiodeMode() {
+            await sendModeCommand('/api/mode/diode', '二极管');
+        }
+
+        async function setContinuityMode() {
+            await sendModeCommand('/api/mode/continuity', '通断');
+        }
+
+        async function sendModeCommand(url, name) {
+            try {
+                const response = await fetch(url, { method: 'POST' });
+                const result = await response.json();
+                addLog(result.message);
+            } catch (error) {
+                addLog(`${name}模式设置失败: ` + error.message);
+            }
+        }
+
+        function updateStatus(status) {
+            const statusBadge = document.getElementById('statusBadge');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            const modeButtons = document.querySelectorAll('.btn-mode');
+
+            switch (status) {
+                case 'connecting':
+                    statusBadge.textContent = '连接中...';
+                    statusBadge.className = 'status-badge status-connecting pulse';
+                    connectBtn.disabled = true;
+                    break;
+                case 'connected':
+                    statusBadge.textContent = '已连接';
+                    statusBadge.className = 'status-badge status-connected';
+                    connectBtn.style.display = 'none';
+                    disconnectBtn.style.display = 'block';
+                    modeButtons.forEach(btn => btn.disabled = false);
+                    break;
+                case 'disconnected':
+                    statusBadge.textContent = '未连接';
+                    statusBadge.className = 'status-badge status-disconnected';
+                    connectBtn.disabled = false;
+                    connectBtn.style.display = 'block';
+                    disconnectBtn.style.display = 'none';
+                    modeButtons.forEach(btn => {
+                        btn.disabled = true;
+                        btn.classList.remove('active');
+                    });
+                    break;
+            }
+        }
+
+        function resetDisplay() {
+            document.getElementById('valueDisplay').textContent = '---';
+            document.getElementById('valueDisplay').classList.add('empty');
+            document.getElementById('unitDisplay').textContent = '';
+            document.getElementById('modeIndicator').textContent = '';
+            updateStatus('disconnected');
+            isConnected = false;
+            currentMode = '';
+        }
+
+        function addLog(message) {
+            const logDisplay = document.getElementById('logDisplay');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.textContent = `[${time}] ${message}`;
+            logDisplay.insertBefore(entry, logDisplay.firstChild);
+        }
+
+        addLog('页面已加载，等待连接...');
+    </script>
+</body>
+</html>

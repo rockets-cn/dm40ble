@@ -1,0 +1,5 @@
+# DM40A Web Server Requirements
+flask>=3.0.0
+flask-socketio>=5.3.0
+python-socketio>=5.9.0
+bleak>=0.21.0
