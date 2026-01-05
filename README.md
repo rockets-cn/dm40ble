@@ -293,4 +293,7 @@ MIT License
 ## 🔗 相关资源
 
 - [Bleak 文档](https://bleak.readthedocs.io/)
-- [DM40 系列说明书](https://www.der ee.com/)
+- [DM40 系列说明书](https://www.deree.com/)
+
+## 鸣谢
+- https://blog.csdn.net/weixin_41929418/article/details/149218095
